@@ -394,8 +394,6 @@ def witeExcel(list):
   # if adress.text
 
 # 商品名称を指定する
-# findItem('pixel')
-# findItem('少女週末旅行 1 BD')
 main('もずく')
 
 
