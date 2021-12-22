@@ -3,9 +3,19 @@ from selenium import webdriver
 import os
 import shutil
 import openpyxl
+
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import ElementClickInterceptedException
 from selenium.common.exceptions import ElementNotInteractableException
+from selenium.common.exceptions import StaleElementReferenceException
+from logging import getLogger, StreamHandler, DEBUG
+logger = getLogger(__name__)
+handler = StreamHandler()
+handler.setLevel(DEBUG)
+logger.setLevel(DEBUG)
+logger.addHandler(handler)
+logger.propagate = False
+
 
 # ★導入方法★
 # seleniumをインストール
@@ -39,28 +49,39 @@ def main(s):
   # 検索ボタンクリック
   driver.find_element_by_id("nav-search-submit-text").click()
 
-  linkstrs = driver.find_elements_by_css_selector('.a-size-base-plus.a-color-base.a-text-normal')
   index = 0
   
   while True :
-    # メインループ
+    linkstrs = driver.find_elements_by_css_selector('.a-size-base-plus.a-color-base.a-text-normal')
 
+    # メインループ
     listLoop(linkstrs)
 
-    # 次ボタン取得
+    # 次ボタン取得 pagenateの種類が複数ある両方確認する
     nextLinks = driver.find_elements_by_class_name('a-last')
+    nextLinks2 = driver.find_elements_by_css_selector('.s-pagination-item.s-pagination-next.s-pagination-button.s-pagination-separator')
 
     # 次ボタンが無い場合終了
-    if len(nextLinks) == 0:
-      return
+    if len(nextLinks) == 0 and len(nextLinks2) == 0:
+      break
 
     # 終了条件 paginate の次のボタンが非活性の場合終了
-    if len(driver.find_elements_by_css_selector('a-disabled.a-last')) > 0 :
+    if len(driver.find_elements_by_css_selector('.a-disabled.a-last')) > 0 or \
+        len(driver.find_elements_by_css_selector('.s-pagination-item.s-pagination-next.s-pagination-disabled')) > 0:
       break
 
     # 次のページへ
-    nextLinks[len(nextLinks) - 1].click()
+    for link in nextLinks:
+      if '次へ' in link.text :
+        link.click()
+        time.sleep(5)
+        break
+    
+    if len(nextLinks2) > 0:
+      nextLinks2[0].click()
+      time.sleep(5)
 
+  logger.info('処理終了')
   driver.quit() # ブラウザを閉じる
 
 def listLoop(linkstrs):
@@ -68,57 +89,47 @@ def listLoop(linkstrs):
   linkstrs  :対象のリンク
   """
 
-  # 改ページ時のスキップ数
-  # skipcount = 0
-
   linkRireki = {}
 
-  # i = 1
   # リンク一覧を参照
-  for str in linkstrs :
-    # # ページのスキップ skipcount-1はスキップ完了状態
-    # if page > 1 and skipcount != -1:
-    #   if (yomikomizumiIndex) > skipcount:
-    #     skipcount += 1
-    #     continue
-    #   else:
-    #     skipcount = -1
+  for linkstr in linkstrs :
+    
+    # リンクが空白のものがあった
+    if linkstr.text == '':
+      continue
 
     # リンクの文字列でリンクを特定
-    links = driver.find_elements_by_partial_link_text(str.text)
+    links = {}
+    try :
+      links = driver.find_elements_by_partial_link_text(linkstr.text)
+    except StaleElementReferenceException:
+      # 失敗した場合再処理を行う
+      time.sleep(5)
+      links = driver.find_elements_by_partial_link_text(linkstr.text)
 
     # リンクが複数ある場合は工夫が必要
     if len(links) == 1 :
       link = links[0]
-      linkRireki[str.text] = 0
+      linkRireki[linkstr.text] = 0
     else:
       # 対象のリンクを指定する
-      if  linkRireki.get(str.text) == None:
-        linkRireki[str.text] = 0
+      if  linkRireki.get(linkstr.text) == None:
+        linkRireki[linkstr.text] = 0
       else:
-        linkRireki[str.text] += 1
+        linkRireki[linkstr.text] += 1
 
-      link = links[linkRireki[str.text]]
+      link = links[linkRireki[linkstr.text]]
       
-    # 1行舐めたらスクロールする
-    # if i % 5 == 0:
-      # 下スクロールする
-      # driver.find_element_by_tag_name('body').click()
-      # driver.find_element_by_tag_name('body').send_keys(Keys.PAGE_DOWN)
-      # scrollByElemAndOffset(link, -10)
-
-    # i += 1
-
     try:
       # リンクを開く
       link.click()
     except ElementClickInterceptedException :
       # 同一商品が複数ある場合にexceptionを吐く場合がある
-      print('同一商品でのエラー')
+      logger.error('同一商品でのエラー')
       continue
     except ElementNotInteractableException :
       # レンダリング作成中に操作をしたためエラーしばらく待つと操作可能になる
-      time.sleep(3)
+      time.sleep()
       # リンクを開く　再トライ
       link.click()
 
@@ -156,7 +167,7 @@ def referGyousya() :
     # id指定のリンクの場合はそれを使用する
     link = driver.find_element_by_id('sellerProfileTriggerId')
   except NoSuchElementException:
-    print('') # 何もしない
+    logger.info('') # 何もしない
 
   # 販売元がamazonの場合は対象外
   if link.text == 'Amazon.co.jp':
@@ -173,13 +184,6 @@ def referGyousya() :
   time.sleep(2) # 2秒待機
 
   list = getData()
-
-  # # ページ遷移せずにデータを取得していることがあった
-  # if (list != None) and ('companyName' not in list) :
-  #   time.sleep(2) # 2秒待機
-  #   # 再度ページ遷移を行う
-  #   link.click()
-  #   list = getData()
 
   if list == None:
     return
@@ -318,15 +322,11 @@ def witeExcel(list):
   # ここで保存
   wb.save(filename)
 
-    # list[]
-    # print(zyouhou.text)
-
-  # if adress.text
 
 # 商品名称を指定する
 # main('消臭剤')
 # main('雪塩ちんすこう（ミニ） 12個入（2×6袋)')
 main('雪塩ちんすこう')
 # main('ちんすこう')
-
-
+# main('紅芋タルト')
+# main('ゴーヤ茶 ティーパック')
