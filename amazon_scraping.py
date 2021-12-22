@@ -57,7 +57,7 @@ def main(s):
     # メインループ
     listLoop(linkstrs)
 
-    # 次ボタン取得 pagenateの種類が複数ある両方確認する
+    # 次ボタン取得 pagenateの種類が2パターンある両方確認する
     nextLinks = driver.find_elements_by_class_name('a-last')
     nextLinks2 = driver.find_elements_by_css_selector('.s-pagination-item.s-pagination-next.s-pagination-button.s-pagination-separator')
 
