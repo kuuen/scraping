@@ -3,11 +3,17 @@ from selenium import webdriver
 import os
 import shutil
 import openpyxl
+import platform
+
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import ElementClickInterceptedException
+from selenium.common.exceptions import TimeoutException
 
-# ★導入方法★
+# ★導入方法★ アクセス集中のエラーが頻繁に表示されるので保留
 # seleniumをインストール
 #   pip install selenium
 #
@@ -30,59 +36,49 @@ def main(s):
   '''
 
   # 開く
-  get('https://shopping.yahoo.co.jp/')
+  get('https://www.rakuten.co.jp/')
 
   # 検索欄にキーワードを入力
-  driver.find_element_by_id("ss_yschsp").send_keys(s)
+  driver.find_element_by_id("common-header-search-input").send_keys(s)
 
   time.sleep(2) # 2秒待機
   # 検索ボタンクリック
-  driver.find_element_by_id("ss_srch_btn").click()
+  driver.find_element_by_css_selector('.button--15weO.button--uGWy7.undefined').click()
 
-  linkstrs = driver.find_elements_by_class_name('_2EW-04-9Eayr')
-  page = 0
+  linkstrs = driver.find_elements_by_css_selector('.content.title')
+
   index = 0
-  # 商品リンクの文字列がまったく同じものがある
-  linkRireki = {}
 
   while True :
-    page += 1
-    # メインループ
-    index += listLoop(page, linkstrs, linkRireki, index)
 
-    # ページは非同期描画で書き込まれる。リンクを再読み込み
-    linkstrs = driver.find_elements_by_class_name('_2EW-04-9Eayr')
+    # # メインループ
+    index += listLoop(linkstrs)
+
+    # # ページは非同期描画で書き込まれる。リンクを再読み込み
+    # linkstrs = driver.find_elements_by_class_name('_2EW-04-9Eayr')
 
     # 再読み込みしても商品数が増えていなかったら最終ページと判断できる
-    if index == len(linkstrs) :
-      break
+    # if index == len(linkstrs) :
+      # break
 
   driver.quit() # ブラウザを閉じる
 
-def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
+def listLoop(linkstrs):
   """
-  page      :読み込む対象のページ
   linkstrs  :対象のリンク
   linkRireki:同じ名前のリンクリスト、値は読み込み済みのindex
   yomikomizumiIndex:読込済みリンクのindex
   """
 
-  # ページindex
-  index = 0
-
   # 改ページ時のスキップ数
   skipcount = 0
+
+  # 商品リンクの文字列がまったく同じものがある
+  linkRireki = {}
 
   # i = 1
   # リンク一覧を参照
   for str in linkstrs :
-    # ページのスキップ skipcount-1はスキップ完了状態
-    if page > 1 and skipcount != -1:
-      if (yomikomizumiIndex) > skipcount:
-        skipcount += 1
-        continue
-      else:
-        skipcount = -1
 
     # リンクの文字列でリンクを特定
     links = driver.find_elements_by_partial_link_text(str.text)
@@ -92,33 +88,18 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
       link = links[0]
       linkRireki[str.text] = 0
     else:
-      # 特定のリンクを指定する
+      # 対象のリンクを指定する
       if  linkRireki.get(str.text) == None:
         linkRireki[str.text] = 0
       else:
         linkRireki[str.text] += 1
 
       link = links[linkRireki[str.text]]
-      
-    # 1行舐めたらスクロールする
-    # if i % 5 == 0:
-      # 下スクロールする
-      # driver.find_element_by_tag_name('body').click()
-      # driver.find_element_by_tag_name('body').send_keys(Keys.PAGE_DOWN)
-      # scrollByElemAndOffset(link, -10)
-
-    # i += 1
-
-    try:
-      # リンクを開く
-      link.click()
-    except ElementClickInterceptedException :
-      # 同一商品が複数ある場合にexceptionを吐く場合がある
-      print('同一商品でのエラー')
-      index += 1
-      continue
-
-    time.sleep(2) # 2秒待機
+    
+    # 新しいタブで開く
+    actions = linkNewTabOpen(link)
+    # link.click()
+    # time.sleep(2) # 5秒待機
 
     # 新しいタブに切り替える
     driver.switch_to.window(driver.window_handles[1])
@@ -131,21 +112,125 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
 
     # 閉じたタブから前のタブを切り替える
     driver.switch_to.window(driver.window_handles[0])
-    index += 1
 
-  return index
+def linkNewTabOpen(link) :
+  # #クリック前のハンドルリスト
+  # handles_befor = driver.window_handles
+
+  # #(リンク)要素を新しいタブで開く
+  actions = ActionChains(driver)
+
+  # if platform.system() == 'Darwin':
+  #   #Macなのでコマンドキー
+  #   actions.key_down(Keys.COMMAND)
+  # else:
+  #   #Mac以外なのでコントロールキー
+  #   actions.key_down(Keys.CONTROL)
+
+  # actions.move_to_element(link)
+  # actions.click()
+  # actions.perform()
+
+  # time.sleep(5) # 5秒待機
+  # try:
+  #   actions.click(link)
+  #   # if link == '' :
+  #   #   get(url)
+  #   # else :
+  #   #   
+  #   actions.perform()      
+  # except ElementClickInterceptedException :
+  #   # 同一商品が複数ある場合にexceptionを吐く場合がある
+  #   print('同一商品でのエラー')
+
+  # try:
+  #     WebDriverWait(driver, 30).until(lambda a: len(a.window_handles) > len(handles_befor))
+  # except TimeoutException:
+  #     print('TimeoutException: 新規ウィンドウが開かずタイムアウトしました')
+
+  actions = ActionChains(driver)
+  # actions.move_to_element(link)
+  # actions.context_click().perform()
+
+  actions.key_down(Keys.CONTROL)
+  actions.click(link)
+  actions.perform()
+
+  time.sleep(3)
+# #  pyautogui.typewrite(["down" , "enter"])
+
+  # actions.key_down(Keys.ARROW_DOWN)
+  # actions.perform()
+  # time.sleep(3)
+  
+  # actions.key_down(Keys.ENTER)
+  # actions.perform()
+
+  # link.send_keys(Keys.ARROW_DOWN)
+  # time.sleep(1)
+  # link.send_keys(Keys.ENTER)
+  
+
+def urlNewTabOpen(url) :
+
+  driver.execute_script("window.open();")
+
+  # 新しいタブに切り替える
+  driver.switch_to.window(driver.window_handles[1])
+
+  get(url)
 
 # 業者ページ処理
 def referGyousya() :
 
   link = None
   list = None
-  try :
-    # 通常店舗とPayPayモール店があるから処理を振り分ける
-    link = driver.find_element_by_partial_link_text('会社概要')
-    list = referGyousyaYahoo()
-  except NoSuchElementException :
-    list = referGyousyaPayPay()
+
+  # url
+  cur_url = driver.current_url.split('/')
+  kaisyaUrl = cur_url[0] + '//'
+  kaisyaUrl += cur_url[2] + '/'
+  kaisyaUrl += cur_url[3] + '/info.html'
+
+  urlNewTabOpen(kaisyaUrl)
+
+  # driver.find_element_by_tag_name('body')
+  # elements = driver.findElements('img')
+
+  kaisya = driver.findElements(By.xpath("//table/tbody/tr/td/font[@size='3']/dl/dt"))
+
+  list['companyName'] = kaisya
+
+  # # Emailアドレス
+  # if ss[0].find('会社名（商号）') > -1:
+    
+  # elif ss[0].find('郵便番号') > -1:
+  #   list['postCode'] = ss[1]
+  # elif ss[0].find('郵便番号') > -1:
+  #   list['postCode'] = ss[1]
+  # elif ss[0].find('住所') > -1:
+  #   if 'adress1' not in list:
+  #     list['adress1'] = ss[1]
+  # elif ss[0].find('所在地') > -1:
+  #   list['adress2'] = ss[1]
+  # elif ss[0].find('代表者') > -1:
+  #   list['representative'] = ss[1]
+  # elif ss[0].find('ストア名') > -1:
+  #   list['shopNameKana'] = ss[1]
+  #   list['shopName'] = ss[2]
+  # elif ss[0].find('ストア名') > -1:
+  #   list['shopName'] = ss[1]
+  # elif ss[0].find('ストア紹介') > -1:
+  #   list['setumei'] = ss[1]
+  # elif ss[0].find('関連ストア') > -1:
+  #   list['relatedStore'] = ss[1]
+  # elif ss[0].find('運営責任者') > -1:
+  #   list['operationManager'] = ss[1]
+  # elif ss[0].find('お問い合わせ') > -1:
+  #   list['tel'] = ss[1]
+  #   list['mail'] = ss[2]
+  # elif ss[0].find('ストア営業日') > -1:
+  #   list['Time'] = ss[1]  
 
   # 既に書き込みが完了した企業は対象外
   if list != None:
@@ -392,8 +477,10 @@ def witeExcel(list):
     # print(zyouhou.text)
 
   # if adress.text
-
+if __name__ == "__main__":
+  # 商品名称を指定する
+  main('海ブドウ')
 # 商品名称を指定する
-main('もずく')
+
 
 

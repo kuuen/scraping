@@ -9,13 +9,15 @@ from selenium.common.exceptions import ElementClickInterceptedException
 from selenium.common.exceptions import ElementNotInteractableException
 from selenium.common.exceptions import StaleElementReferenceException
 from logging import getLogger, StreamHandler, DEBUG
+import logging
 logger = getLogger(__name__)
 handler = StreamHandler()
 handler.setLevel(DEBUG)
 logger.setLevel(DEBUG)
 logger.addHandler(handler)
 logger.propagate = False
-
+log_file = logging.FileHandler('log/app.log')
+logger.addHandler(log_file)
 
 # ★導入方法★
 # seleniumをインストール
@@ -24,13 +26,15 @@ logger.propagate = False
 # https://sites.google.com/chromium.org/driver/downloads?authuser=0 にて使用しているchromeのバージョンのwebdriverをダウンロードする
 # ダウンロードしたexeファイルをpython.exeと同じディレクトリに保存する（場所は環境変数で確認できる）
 # 店舗情報.xlsxを実行ファイルの同ディレクトリに置く
-# main() の引数に商品名を指定する
 
-# WebDriverのインスタンスを作成
-driver = webdriver.Chrome() 
+driver = None
+
+# 会社書き込み数
+writeKaisyaCount = 0
 
 # 対象ページを開く
 def get(url) :
+  global driver
   driver.get(url)
   time.sleep(2) # 2秒待機
 
@@ -38,6 +42,13 @@ def get(url) :
 def main(s):
   ''' s:検索キーワード
   '''
+
+  # WebDriverのインスタンスを作成
+  global driver
+  driver = webdriver.Chrome()
+
+  global writeKaisyaCount
+  writeKaisyaCount = 0
 
   # 開く
   get('https://www.amazon.co.jp/')
@@ -49,13 +60,13 @@ def main(s):
   # 検索ボタンクリック
   driver.find_element_by_id("nav-search-submit-text").click()
 
-  index = 0
+  itemcont = 0
   
   while True :
     linkstrs = driver.find_elements_by_css_selector('.a-size-base-plus.a-color-base.a-text-normal')
 
     # メインループ
-    listLoop(linkstrs)
+    itemcont += listLoop(linkstrs)
 
     # 次ボタン取得 pagenateの種類が2パターンある両方確認する
     nextLinks = driver.find_elements_by_class_name('a-last')
@@ -81,19 +92,26 @@ def main(s):
       nextLinks2[0].click()
       time.sleep(5)
 
-  logger.info('処理終了')
   driver.quit() # ブラウザを閉じる
+
+  logger.info('Amazon検索 キーワード[%s] 参照商品数 : %d 登録会社数 : %d' % (s, itemcont, writeKaisyaCount)) 
+  return '参照商品数 : %d 件 登録会社数 : %d 件' % (itemcont, writeKaisyaCount)
 
 def listLoop(linkstrs):
   """
   linkstrs  :対象のリンク
   """
 
+  global driver
+
   linkRireki = {}
+
+  i = 0
 
   # リンク一覧を参照
   for linkstr in linkstrs :
     
+
     # リンクが空白のものがあった
     if linkstr.text == '':
       continue
@@ -140,15 +158,18 @@ def listLoop(linkstrs):
 
     # 業者ページを参照
     referGyousya()
+    i += 1
 
     # 新しいタブを閉じる
     driver.close()
 
     # 閉じたタブから前のタブを切り替える
     driver.switch_to.window(driver.window_handles[0])
+  return i
 
 # 業者ページ処理
 def referGyousya() :
+  global driver
 
   link = None
   list = None
@@ -189,9 +210,10 @@ def referGyousya() :
     return
 
   # エクセル書き込み
-  witeExcel(list)
+  writeExcel(list)
 
 def getData() :
+  global driver
   zyouhous = driver.find_elements_by_css_selector('.a-unordered-list.a-nostyle.a-vertical')
   list = {}
 
@@ -208,6 +230,9 @@ def getData() :
     elif z.find('電話番号') > -1:
       list['tel'] = z.split(':')[1]
 
+  # ★テスト
+  raise Exception("テストのthrow")
+
   # 住所
   zyouhou = zyouhous[1]
   adress = zyouhou.text.split('\n')
@@ -222,7 +247,11 @@ def getData() :
   list['postCode'] = adress[len(adress) -2]
   
   # 沖縄以外の場合は対象外
-  if list['adress1'].find('沖縄') == -1:
+  if list['adress1'].find('沖縄') == -1 and \
+      list['adress1'].find('OKINAWA') == -1 and \
+      list['adress1'].find('okinawa') == -1 and \
+      list['adress1'].find('Okinawa') == -1:
+
     return None
   else:
     return list
@@ -252,7 +281,7 @@ def getValue(key, source):
   else :
     return ''
 
-def witeExcel(list):
+def writeExcel(list):
   # ファイルパスを指定
   # path = r'C:\Users\N030\Desktop\faceRecognition-master\faceRecognition\scraping'
   filename = '店舗情報.xlsx'
@@ -322,11 +351,16 @@ def witeExcel(list):
   # ここで保存
   wb.save(filename)
 
+  global writeKaisyaCount
+  writeKaisyaCount += 1
 
-# 商品名称を指定する
-# main('消臭剤')
-# main('雪塩ちんすこう（ミニ） 12個入（2×6袋)')
-main('雪塩ちんすこう')
-# main('ちんすこう')
-# main('紅芋タルト')
-# main('ゴーヤ茶 ティーパック')
+if __name__ == "__main__":
+  # 商品名称を指定する
+  # main('消臭剤')
+  # main('雪塩ちんすこう（ミニ） 12個入（2×6袋)')
+  main('雪塩ちんすこう')
+  # main('ちんすこう')
+  # main('紅芋タルト')
+  # main('ゴーヤ茶 ティーパック')
+
+

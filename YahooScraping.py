@@ -6,6 +6,17 @@ import openpyxl
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import ElementClickInterceptedException
+from logging import getLogger, StreamHandler, DEBUG
+import logging
+
+logger = getLogger(__name__)
+handler = StreamHandler()
+handler.setLevel(DEBUG)
+logger.setLevel(DEBUG)
+logger.addHandler(handler)
+logger.propagate = False
+log_file = logging.FileHandler('log/app.log')
+logger.addHandler(log_file)
 
 # ★導入方法★
 # seleniumをインストール
@@ -14,13 +25,15 @@ from selenium.common.exceptions import ElementClickInterceptedException
 # https://sites.google.com/chromium.org/driver/downloads?authuser=0 にて使用しているchromeのバージョンのwebdriverをダウンロードする
 # ダウンロードしたexeファイルをpython.exeと同じディレクトリに保存する（場所は環境変数で確認できる）
 # 店舗情報.xlsxを実行ファイルの同ディレクトリに置く
-# main() の引数に商品名を指定する
 
-# WebDriverのインスタンスを作成
-driver = webdriver.Chrome() 
+driver = None
+
+# 会社書き込み数
+writeKaisyaCount = 0
 
 # 対象ページを開く
 def get(url) :
+  global driver  
   driver.get(url)
   time.sleep(2) # 2秒待機
 
@@ -28,24 +41,28 @@ def get(url) :
 def main(s):
   ''' s:検索キーワード
   '''
+  global driver
+  # WebDriverのインスタンスを作成
+  driver = webdriver.Chrome()
+
+  global writeKaisyaCount
+  writeKaisyaCount = 0
 
   # 開く
-  get('https://www.rakuten.co.jp/')
+  get('https://shopping.yahoo.co.jp/')
 
   # 検索欄にキーワードを入力
-  driver.find_element_by_id("common-header-search-input").send_keys(s)
+  driver.find_element_by_id("ss_yschsp").send_keys(s)
 
   time.sleep(2) # 2秒待機
   # 検索ボタンクリック
-  driver.find_element_by_css_selector(('.button--15weO.button--uGWy7.undefined')).click()
-
-  return
+  driver.find_element_by_id("ss_srch_btn").click()
 
   linkstrs = driver.find_elements_by_class_name('_2EW-04-9Eayr')
   page = 0
   index = 0
   # 商品リンクの文字列がまったく同じものがある
-  # linkRireki = {}
+  linkRireki = {}
 
   while True :
     page += 1
@@ -56,10 +73,13 @@ def main(s):
     linkstrs = driver.find_elements_by_class_name('_2EW-04-9Eayr')
 
     # 再読み込みしても商品数が増えていなかったら最終ページと判断できる
-    # if index == len(linkstrs) :
-      # break
+    if index == len(linkstrs) :
+      break
 
   driver.quit() # ブラウザを閉じる
+
+  logger.info('Yhaooショッピング検索 キーワード[%s] 参照商品数 : %d 登録会社数 : %d' % (s, index, writeKaisyaCount)) 
+  return '参照商品数 : %d 件 登録会社数 : %d 件' % (index, writeKaisyaCount)
 
 def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
   """
@@ -68,7 +88,7 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
   linkRireki:同じ名前のリンクリスト、値は読み込み済みのindex
   yomikomizumiIndex:読込済みリンクのindex
   """
-
+  global driver
   # ページindex
   index = 0
 
@@ -94,7 +114,7 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
       link = links[0]
       linkRireki[str.text] = 0
     else:
-      # 特定のリンクを指定する
+      # 対象のリンクを指定する
       if  linkRireki.get(str.text) == None:
         linkRireki[str.text] = 0
       else:
@@ -102,21 +122,12 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
 
       link = links[linkRireki[str.text]]
       
-    # 1行舐めたらスクロールする
-    # if i % 5 == 0:
-      # 下スクロールする
-      # driver.find_element_by_tag_name('body').click()
-      # driver.find_element_by_tag_name('body').send_keys(Keys.PAGE_DOWN)
-      # scrollByElemAndOffset(link, -10)
-
-    # i += 1
-
     try:
       # リンクを開く
       link.click()
     except ElementClickInterceptedException :
       # 同一商品が複数ある場合にexceptionを吐く場合がある
-      print('同一商品でのエラー')
+      logger.error('同一商品でのエラー')
       index += 1
       continue
 
@@ -139,7 +150,7 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
 
 # 業者ページ処理
 def referGyousya() :
-
+  global driver
   link = None
   list = None
   try :
@@ -152,11 +163,11 @@ def referGyousya() :
   # 既に書き込みが完了した企業は対象外
   if list != None:
     # エクセル書き込み
-    witeExcel(list)
+    writeExcel(list)
 
 # 業者ページを開くPayPayモールの場合
 def referGyousyaPayPay() :
-
+  global driver
   try :
     linkstr = driver.find_element_by_class_name('ItemSeller_name')
   except NoSuchElementException:
@@ -234,6 +245,7 @@ def referGyousyaPayPay() :
 
 # 業者ページを開く
 def referGyousyaYahoo() :
+  global driver
   # 会社概要を開く
   link = driver.find_element_by_partial_link_text('会社概要')
 
@@ -288,7 +300,15 @@ def referGyousyaYahoo() :
       list['Time'] = ss[1]
 
   # 沖縄以外の場合は対象外
-  if list['adress1'].find('沖縄') == -1 and list['adress2'].find('沖縄') == -1:
+  if list['adress1'].find('沖縄') == -1 and \
+      list['adress1'].find('OKINAWA') == -1 and \
+      list['adress1'].find('okinawa') == -1 and \
+      list['adress1'].find('Okinawa') == -1 and \
+      list['adress2'].find('沖縄') == -1 and \
+      list['adress2'].find('OKINAWA') == -1 and \
+      list['adress2'].find('okinawa') == -1 and \
+      list['adress2'].find('Okinawa') == -1:
+
     taisyou = False
   else :
     taisyou = True
@@ -318,7 +338,7 @@ def kaisyaExist(companyName, sheet) :
     gyouNo += 1
   return result
 
-def witeExcel(list):
+def writeExcel(list):
   # ファイルパスを指定
   # path = r'C:\Users\N030\Desktop\faceRecognition-master\faceRecognition\scraping'
   filename = '店舗情報.xlsx'
@@ -390,12 +410,9 @@ def witeExcel(list):
   # ここで保存
   wb.save(filename)
 
-    # list[]
-    # print(zyouhou.text)
+  global writeKaisyaCount
+  writeKaisyaCount += 1
 
-  # if adress.text
-
-# 商品名称を指定する
-main('もずく')
-
-
+if __name__ == "__main__":
+  # 商品名称を指定する
+  main('雪塩ちんすこう 沖縄 南風堂  大 小')
