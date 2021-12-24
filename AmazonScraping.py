@@ -1,4 +1,5 @@
 import time
+from openpyxl.descriptors.base import Text
 from selenium import webdriver
 import os
 import shutil
@@ -8,7 +9,7 @@ from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import ElementClickInterceptedException
 from selenium.common.exceptions import ElementNotInteractableException
 from selenium.common.exceptions import StaleElementReferenceException
-from logging import getLogger, StreamHandler, DEBUG
+from logging import getLogger, StreamHandler, DEBUG, INFO
 import logging
 logger = getLogger(__name__)
 handler = StreamHandler()
@@ -16,7 +17,11 @@ handler.setLevel(DEBUG)
 logger.setLevel(DEBUG)
 logger.addHandler(handler)
 logger.propagate = False
+# フォーマットを定義
+fh_formatter = logging.Formatter('%(asctime)s - %(levelname)s -  %(name)s - %(funcName)s - %(message)s')
 log_file = logging.FileHandler('log/app.log')
+log_file.setLevel(INFO)
+log_file.setFormatter(fh_formatter)
 logger.addHandler(log_file)
 
 # ★導入方法★
@@ -32,6 +37,8 @@ driver = None
 # 会社書き込み数
 writeKaisyaCount = 0
 
+keyword = ''
+
 # 対象ページを開く
 def get(url) :
   global driver
@@ -39,9 +46,11 @@ def get(url) :
   time.sleep(2) # 2秒待機
 
 # Yahooショッピングを開いて商品を検索する
-def main(s):
+def main(s, limit):
   ''' s:検索キーワード
   '''
+  global keyword
+  keyword = s
 
   # WebDriverのインスタンスを作成
   global driver
@@ -66,7 +75,11 @@ def main(s):
     linkstrs = driver.find_elements_by_css_selector('.a-size-base-plus.a-color-base.a-text-normal')
 
     # メインループ
-    itemcont += listLoop(linkstrs)
+    itemcont += listLoop(linkstrs, limit)
+
+    # 最大件数を読み込んだら終了
+    if limit == itemcont:
+      break
 
     # 次ボタン取得 pagenateの種類が2パターンある両方確認する
     nextLinks = driver.find_elements_by_class_name('a-last')
@@ -97,7 +110,7 @@ def main(s):
   logger.info('Amazon検索 キーワード[%s] 参照商品数 : %d 登録会社数 : %d' % (s, itemcont, writeKaisyaCount)) 
   return '参照商品数 : %d 件 登録会社数 : %d 件' % (itemcont, writeKaisyaCount)
 
-def listLoop(linkstrs):
+def listLoop(linkstrs, limit):
   """
   linkstrs  :対象のリンク
   """
@@ -143,11 +156,11 @@ def listLoop(linkstrs):
       link.click()
     except ElementClickInterceptedException :
       # 同一商品が複数ある場合にexceptionを吐く場合がある
-      logger.error('同一商品でのエラー')
+      logger.error('同一商品でのエラー %s ' % (link.text))
       continue
     except ElementNotInteractableException :
       # レンダリング作成中に操作をしたためエラーしばらく待つと操作可能になる
-      time.sleep()
+      time.sleep(5)
       # リンクを開く　再トライ
       link.click()
 
@@ -156,15 +169,23 @@ def listLoop(linkstrs):
     # 新しいタブに切り替える
     driver.switch_to.window(driver.window_handles[1])
 
-    # 業者ページを参照
-    referGyousya()
-    i += 1
+    try :
+      # 業者ページを参照
+      referGyousya()
+      i += 1
+    except NoSuchElementException:
+      logger.error('エラーでスキップ %s' % (link.text))
 
     # 新しいタブを閉じる
     driver.close()
 
     # 閉じたタブから前のタブを切り替える
     driver.switch_to.window(driver.window_handles[0])
+
+    # 最大件数を読み込んだら終了
+    if limit == i:
+      break
+
   return i
 
 # 業者ページ処理
@@ -174,21 +195,27 @@ def referGyousya() :
   link = None
   list = None
 
-  # 商品ページによって販売元リンクが異なる
-  link = driver.find_elements_by_css_selector(".tabular-buybox-text.a-spacing-none")[1]
-
-  if link.text == '' :
-    # 値が空白の場合リンクを取得できていない
-  
-    # 通常の注文から要素を取得、クリックして展開
-    driver.find_elements_by_css_selector(".a-column.a-span12.a-text-left.truncate")[1].click()
-    time.sleep(2) # 2秒待機
-
   try :
     # id指定のリンクの場合はそれを使用する
     link = driver.find_element_by_id('sellerProfileTriggerId')
   except NoSuchElementException:
-    logger.info('') # 何もしない
+
+    # 販売元欄が無いページがある
+    if len(driver.find_elements_by_css_selector(".tabular-buybox-text.a-spacing-none")) == 2:
+      # 販売元欄があるページ
+
+      # 商品ページによって販売元リンクが異なる
+      link = driver.find_elements_by_css_selector(".tabular-buybox-text.a-spacing-none")[1]
+    else:
+      # 販売元欄が無いページ
+      raise NoSuchElementException(msg = '販売元ページがないためスキップ')
+
+  if link.text == '' :
+    # 値が空白の場合リンクを取得できていない(隠れている)
+  
+    # 通常の注文から要素を取得、クリックして隠れている領域を展開
+    driver.find_elements_by_css_selector(".a-column.a-span12.a-text-left.truncate")[1].click()
+    time.sleep(2) # 2秒待機
 
   # 販売元がamazonの場合は対象外
   if link.text == 'Amazon.co.jp':
@@ -229,9 +256,6 @@ def getData() :
       list['shopName'] = z.split(':')[1]
     elif z.find('電話番号') > -1:
       list['tel'] = z.split(':')[1]
-
-  # ★テスト
-  raise Exception("テストのthrow")
 
   # 住所
   zyouhou = zyouhous[1]
@@ -347,6 +371,12 @@ def writeExcel(list):
 
   # 関連ストア
   sheet.cell(column = 15, row = gyouNo).value = getValue('relatedStore', list)    
+
+  sheet.cell(column = 17, row = gyouNo).value = 'Amazon'
+
+  # 検索キーワード
+  global keyword
+  sheet.cell(column = 16, row = gyouNo).value = keyword
 
   # ここで保存
   wb.save(filename)

@@ -6,7 +6,7 @@ import openpyxl
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import ElementClickInterceptedException
-from logging import getLogger, StreamHandler, DEBUG
+from logging import getLogger, StreamHandler, DEBUG, INFO
 import logging
 
 logger = getLogger(__name__)
@@ -15,8 +15,13 @@ handler.setLevel(DEBUG)
 logger.setLevel(DEBUG)
 logger.addHandler(handler)
 logger.propagate = False
+# フォーマットを定義
+fh_formatter = logging.Formatter('%(asctime)s - %(levelname)s -  %(name)s - %(funcName)s - %(message)s')
 log_file = logging.FileHandler('log/app.log')
+log_file.setLevel(INFO)
+log_file.setFormatter(fh_formatter)
 logger.addHandler(log_file)
+
 
 # ★導入方法★
 # seleniumをインストール
@@ -31,6 +36,8 @@ driver = None
 # 会社書き込み数
 writeKaisyaCount = 0
 
+keyword = ''
+
 # 対象ページを開く
 def get(url) :
   global driver  
@@ -38,10 +45,12 @@ def get(url) :
   time.sleep(2) # 2秒待機
 
 # Yahooショッピングを開いて商品を検索する
-def main(s):
+def main(s, limit):
   ''' s:検索キーワード
   '''
   global driver
+  global keyword
+  keyword = s
   # WebDriverのインスタンスを作成
   driver = webdriver.Chrome()
 
@@ -67,7 +76,11 @@ def main(s):
   while True :
     page += 1
     # メインループ
-    index += listLoop(page, linkstrs, linkRireki, index)
+    index += listLoop(page, linkstrs, linkRireki, index, limit)
+
+    # 最大件数を読み込んだら終了
+    if limit == index:
+      break
 
     # ページは非同期描画で書き込まれる。リンクを再読み込み
     linkstrs = driver.find_elements_by_class_name('_2EW-04-9Eayr')
@@ -81,7 +94,7 @@ def main(s):
   logger.info('Yhaooショッピング検索 キーワード[%s] 参照商品数 : %d 登録会社数 : %d' % (s, index, writeKaisyaCount)) 
   return '参照商品数 : %d 件 登録会社数 : %d 件' % (index, writeKaisyaCount)
 
-def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
+def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex, limit):
   """
   page      :読み込む対象のページ
   linkstrs  :対象のリンク
@@ -127,7 +140,7 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
       link.click()
     except ElementClickInterceptedException :
       # 同一商品が複数ある場合にexceptionを吐く場合がある
-      logger.error('同一商品でのエラー')
+      logger.error('同一商品でのエラー %s' % (link.text))
       index += 1
       continue
 
@@ -137,7 +150,7 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
     driver.switch_to.window(driver.window_handles[1])
 
     # 業者ページを参照
-    referGyousya()
+    referGyousya(link.text)
 
     # 新しいタブを閉じる
     driver.close()
@@ -146,19 +159,23 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex):
     driver.switch_to.window(driver.window_handles[0])
     index += 1
 
+    # 最大件数を読み込んだら終了
+    if limit == index:
+      break
+
   return index
 
 # 業者ページ処理
-def referGyousya() :
+def referGyousya(itemName) :
   global driver
   link = None
   list = None
   try :
     # 通常店舗とPayPayモール店があるから処理を振り分ける
     link = driver.find_element_by_partial_link_text('会社概要')
-    list = referGyousyaYahoo()
+    list = referGyousyaYahoo(itemName)
   except NoSuchElementException :
-    list = referGyousyaPayPay()
+    list = referGyousyaPayPay(itemName)
 
   # 既に書き込みが完了した企業は対象外
   if list != None:
@@ -166,12 +183,13 @@ def referGyousya() :
     writeExcel(list)
 
 # 業者ページを開くPayPayモールの場合
-def referGyousyaPayPay() :
+def referGyousyaPayPay(itemName) :
   global driver
   try :
     linkstr = driver.find_element_by_class_name('ItemSeller_name')
   except NoSuchElementException:
     # ページが見つからない場合があった
+    logger.error('ページが見つからないのエラー %s' % (itemName))
     return 
 
   link = driver.find_element_by_partial_link_text(linkstr.text)
@@ -184,6 +202,7 @@ def referGyousyaPayPay() :
     linkstr = driver.find_element_by_class_name('StoreService_item')
   except NoSuchElementException :
     # ページが見つからない場合があった
+    logger.error('ページが見つからないのエラー %s' % (itemName))
     return
 
   link = driver.find_element_by_partial_link_text(linkstr.text)
@@ -192,6 +211,19 @@ def referGyousyaPayPay() :
   time.sleep(2) # 2秒待機
 
   zyouhous = driver.find_elements_by_class_name('StoreInfo_item')
+
+  # 取得できていない場合「指定されたページは見つかりませんでした」となっている
+  if len(zyouhous) == 0 :
+    time.sleep(10) # 10秒待機
+    driver.back() # 戻る
+    link.click() # 再度リンクをクリック
+    time.sleep(2) # 2秒待機
+    zyouhous = driver.find_elements_by_class_name('StoreInfo_item')
+
+    # 再チェック
+    if len(zyouhous) == 0:
+      # スキップする
+      return
 
   list = {}
   taisyou = True
@@ -232,7 +264,15 @@ def referGyousyaPayPay() :
       list['Time'] = ss[1]
 
   # 沖縄以外の場合は対象外
-  if list['adress1'].find('沖縄') == -1 and list['adress2'].find('沖縄') == -1:
+  if list['adress1'].find('沖縄') == -1 and \
+      list['adress1'].find('OKINAWA') == -1 and \
+      list['adress1'].find('okinawa') == -1 and \
+      list['adress1'].find('Okinawa') == -1 and \
+      list['adress2'].find('沖縄') == -1 and \
+      list['adress2'].find('OKINAWA') == -1 and \
+      list['adress2'].find('okinawa') == -1 and \
+      list['adress2'].find('Okinawa') == -1:
+
     taisyou = False
   else :
     taisyou = True
@@ -244,7 +284,7 @@ def referGyousyaPayPay() :
     return list
 
 # 業者ページを開く
-def referGyousyaYahoo() :
+def referGyousyaYahoo(itemName) :
   global driver
   # 会社概要を開く
   link = driver.find_element_by_partial_link_text('会社概要')
@@ -259,6 +299,7 @@ def referGyousyaYahoo() :
   # ページを正しく取得できなかった場合
   if len(zyouhous) == 0:
     # 該当企業は飛ばす
+    logger.error('ページを正しく取得できないエラー %s' % (itemName))
     return None
 
   list = {}
@@ -406,6 +447,12 @@ def writeExcel(list):
   # 関連ストア
   if 'relatedStore' in list:  
     sheet.cell(column = 15, row = gyouNo).value = list['relatedStore']
+
+  # 検索キーワード
+  global keyword
+  sheet.cell(column = 16, row = gyouNo).value = keyword
+
+  sheet.cell(column = 17, row = gyouNo).value = 'Yahoo Shopping'
 
   # ここで保存
   wb.save(filename)
