@@ -6,6 +6,7 @@ import openpyxl
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import ElementClickInterceptedException
+from selenium.common.exceptions import StaleElementReferenceException
 from logging import getLogger, StreamHandler, DEBUG, INFO
 import logging
 
@@ -64,7 +65,8 @@ def main(s, limit):
   driver.find_element_by_id("ss_yschsp").send_keys(s)
 
   time.sleep(2) # 2秒待機
-  # 検索ボタンクリック
+
+  # # 検索ボタンクリック
   driver.find_element_by_id("ss_srch_btn").click()
 
   linkstrs = driver.find_elements_by_class_name('_2EW-04-9Eayr')
@@ -121,6 +123,7 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex, limit):
 
     # リンクの文字列でリンクを特定
     links = driver.find_elements_by_partial_link_text(str.text)
+    itemName = str.text
 
     # リンクが複数ある場合は工夫が必要
     if len(links) == 1 :
@@ -140,7 +143,7 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex, limit):
       link.click()
     except ElementClickInterceptedException :
       # 同一商品が複数ある場合にexceptionを吐く場合がある
-      logger.error('同一商品でのエラー %s' % (link.text))
+      logger.error('同一商品でのエラー %s' % (str.text))
       index += 1
       continue
 
@@ -150,7 +153,7 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex, limit):
     driver.switch_to.window(driver.window_handles[1])
 
     # 業者ページを参照
-    referGyousya(link.text)
+    referGyousya(itemName)
 
     # 新しいタブを閉じる
     driver.close()
@@ -214,16 +217,22 @@ def referGyousyaPayPay(itemName) :
 
   # 取得できていない場合「指定されたページは見つかりませんでした」となっている
   if len(zyouhous) == 0 :
-    time.sleep(10) # 10秒待機
-    driver.back() # 戻る
-    link.click() # 再度リンクをクリック
-    time.sleep(2) # 2秒待機
-    zyouhous = driver.find_elements_by_class_name('StoreInfo_item')
+    try :
+      time.sleep(10) # 10秒待機
+      driver.back() # 戻る
+      link = driver.find_element_by_partial_link_text(linkstr.text)
+      link.click() # 再度リンクをクリック
+      time.sleep(2) # 2秒待機
+      zyouhous = driver.find_elements_by_class_name('StoreInfo_item')
 
-    # 再チェック
-    if len(zyouhous) == 0:
-      # スキップする
-      return
+      # 再チェック
+      if len(zyouhous) == 0:
+        # スキップする
+        logger.error('ページが見つからないのエラー %s' % (itemName))
+        return
+    except StaleElementReferenceException:
+        logger.error('ページが見つからないのエラー %s' % (itemName))
+        return
 
   list = {}
   taisyou = True
@@ -308,6 +317,11 @@ def referGyousyaYahoo(itemName) :
   for zyouhou in zyouhous:
     # 列名、値を分割する
     ss = zyouhou.text.split('\n')
+
+    # 分割できない場合があった
+    if len(ss) == 1:
+      # その場合は同じ値を設定する
+      ss.append(zyouhou.text)
 
     # 各値を整理する
     if ss[0].find('住所') > -1:
@@ -462,4 +476,4 @@ def writeExcel(list):
 
 if __name__ == "__main__":
   # 商品名称を指定する
-  main('雪塩ちんすこう 沖縄 南風堂  大 小')
+  main('雪塩ちんすこう 沖縄 南風堂  大 小', 3)

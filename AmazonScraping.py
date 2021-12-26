@@ -110,6 +110,34 @@ def main(s, limit):
   logger.info('Amazon検索 キーワード[%s] 参照商品数 : %d 登録会社数 : %d' % (s, itemcont, writeKaisyaCount)) 
   return '参照商品数 : %d 件 登録会社数 : %d 件' % (itemcont, writeKaisyaCount)
 
+def getLink(linkstr, linkRireki):
+  global driver
+
+  # リンクの文字列でリンクを特定
+  links = {}
+  try :
+    links = driver.find_elements_by_partial_link_text(linkstr.text)
+  except StaleElementReferenceException:
+    # 失敗した場合再処理を行う
+    time.sleep(5)
+    links = driver.find_elements_by_partial_link_text(linkstr.text)
+
+  # リンクが複数ある場合は工夫が必要
+  if len(links) == 1 :
+    link = links[0]
+    linkRireki[linkstr.text] = 0
+  else:
+    # 対象のリンクを指定する
+    if  linkRireki.get(linkstr.text) == None:
+      linkRireki[linkstr.text] = 0
+    else:
+      linkRireki[linkstr.text] += 1
+
+    link = links[linkRireki[linkstr.text]]
+
+  return link
+
+
 def listLoop(linkstrs, limit):
   """
   linkstrs  :対象のリンク
@@ -129,34 +157,16 @@ def listLoop(linkstrs, limit):
     if linkstr.text == '':
       continue
 
-    # リンクの文字列でリンクを特定
-    links = {}
-    try :
-      links = driver.find_elements_by_partial_link_text(linkstr.text)
-    except StaleElementReferenceException:
-      # 失敗した場合再処理を行う
-      time.sleep(5)
-      links = driver.find_elements_by_partial_link_text(linkstr.text)
-
-    # リンクが複数ある場合は工夫が必要
-    if len(links) == 1 :
-      link = links[0]
-      linkRireki[linkstr.text] = 0
-    else:
-      # 対象のリンクを指定する
-      if  linkRireki.get(linkstr.text) == None:
-        linkRireki[linkstr.text] = 0
-      else:
-        linkRireki[linkstr.text] += 1
-
-      link = links[linkRireki[linkstr.text]]
+    link = getLink(linkstr, linkRireki)
       
+    itemName = link.text
+    # logger.info('商品名 %s 処理' % (itemName))
     try:
       # リンクを開く
       link.click()
     except ElementClickInterceptedException :
       # 同一商品が複数ある場合にexceptionを吐く場合がある
-      logger.error('同一商品でのエラー %s ' % (link.text))
+      logger.error('同一商品でのエラー %s ' % (itemName))
       continue
     except ElementNotInteractableException :
       # レンダリング作成中に操作をしたためエラーしばらく待つと操作可能になる
@@ -167,14 +177,24 @@ def listLoop(linkstrs, limit):
     time.sleep(2) # 2秒待機
 
     # 新しいタブに切り替える
-    driver.switch_to.window(driver.window_handles[1])
+    if len(driver.window_handles) == 2:
+      driver.switch_to.window(driver.window_handles[1])
+    else:
+      # たまに新しいタブを開かない場合がある
+      driver.back() # 戻る
+      time.sleep(5)
+      link = getLink(linkstr, linkRireki)
+      link.click() # 再度開く
+      driver.switch_to.window(driver.window_handles[1])
 
     try :
       # 業者ページを参照
-      referGyousya()
+      referGyousya(itemName)
       i += 1
     except NoSuchElementException:
-      logger.error('エラーでスキップ %s' % (link.text))
+      logger.error('エラーでスキップ %s' % (itemName))
+      import traceback
+      logger.error(traceback.format_exc())      
 
     # 新しいタブを閉じる
     driver.close()
@@ -189,7 +209,7 @@ def listLoop(linkstrs, limit):
   return i
 
 # 業者ページ処理
-def referGyousya() :
+def referGyousya(itemName) :
   global driver
 
   link = None
@@ -208,14 +228,20 @@ def referGyousya() :
       link = driver.find_elements_by_css_selector(".tabular-buybox-text.a-spacing-none")[1]
     else:
       # 販売元欄が無いページ
-      raise NoSuchElementException(msg = '販売元ページがないためスキップ')
+      raise NoSuchElementException(msg = itemName + ' 販売元ページがないためスキップ')
 
-  if link.text == '' :
-    # 値が空白の場合リンクを取得できていない(隠れている)
-  
-    # 通常の注文から要素を取得、クリックして隠れている領域を展開
-    driver.find_elements_by_css_selector(".a-column.a-span12.a-text-left.truncate")[1].click()
-    time.sleep(2) # 2秒待機
+  # リンクが空白の場合　パターンが２つある
+  if link.text == '':
+
+    if len(driver.find_elements_by_css_selector(".a-column.a-span12.a-text-left.truncate")) > 2:
+
+      # 値が空白の場合リンクを取得できていない(隠れている)
+    
+      # 通常の注文から要素を取得、クリックして隠れている領域を展開
+      driver.find_elements_by_css_selector(".a-column.a-span12.a-text-left.truncate")[1].click()
+      time.sleep(2) # 2秒待機
+    else :
+      link = driver.find_elements_by_css_selector(".tabular-buybox-text.a-spacing-none")[1]
 
   # 販売元がamazonの場合は対象外
   if link.text == 'Amazon.co.jp':
@@ -225,9 +251,16 @@ def referGyousya() :
     # 販売元をクリック
     link.click()
   except ElementNotInteractableException :
-    # レンダリング作成中に操作をしたためエラーしばらく待つと操作可能になる
-    time.sleep(3)
-    link.click()
+    
+    if len(driver.find_elements_by_css_selector('.a-column.a-span12.a-text-left.truncate')) == 0:
+      # レンダリング作成中に操作をしたためエラーしばらく待つと操作可能になる
+      time.sleep(3)
+      link.click()
+    else:
+      # もしくはタイムセールの場合もある
+      driver.find_elements_by_css_selector('.a-column.a-span12.a-text-left.truncate')[0].click()
+      time.sleep(2) # 2秒待機
+      link.click()
 
   time.sleep(2) # 2秒待機
 
@@ -388,7 +421,7 @@ if __name__ == "__main__":
   # 商品名称を指定する
   # main('消臭剤')
   # main('雪塩ちんすこう（ミニ） 12個入（2×6袋)')
-  main('雪塩ちんすこう')
+  main('雪塩ちんすこう', 3)
   # main('ちんすこう')
   # main('紅芋タルト')
   # main('ゴーヤ茶 ティーパック')
