@@ -59,20 +59,20 @@ def exec2():
   keywordlist = [
     # 'もずく',
     # '豚肉',
-    # 'ヤギ',
-    # '山羊',
+    # 'ヤギ 沖縄',
+    # '山羊 沖縄',
     # 'うちなー',
     # '沖縄',
     # '琉球',
-    # '泡盛',
-    # '黒糖',
+    '泡盛',
+    '黒糖',
     'ゴーヤー',
     '沖縄野菜',
     'マンゴー',
     '海ぶどう',
     '沖縄そば',
     'ソーキ',
-    'ハンバーガー',
+    'ハンバーガー 沖縄',
     'サーターアンダギー',
     'さんぴん茶',
     'フーチバー',
@@ -99,15 +99,17 @@ def exec2():
     sg.popup_error(msg)
   else:
     for keyword in keywordlist:
-      try :
-        YahooScraping.main(keyword, int(values['limit']))
-        # AmazonScraping.main(keyword, int(values['limit']))
-      except Exception as e:
-        import traceback
-        logger.error("キーワード : %s" % (keyword))
-        logger.error(traceback.format_exc())
-        sg.popup_error('エラーlogファイルを確認してください')
+      # try :
+      #   # YahooScraping.main(keyword, int(values['limit']))
+      #   AmazonScraping.main(keyword, int(values['limit']))
+      # except Exception as e:
+      #   import traceback
+      #   logger.error("キーワード : %s" % (keyword))
+      #   logger.error(traceback.format_exc())
+      #   sg.popup_error('エラーlogファイルを確認してください')
 
+      # YahooScraping.main(keyword, int(values['limit']))
+      AmazonScraping.main(keyword, int(values['limit']))
 
 layout = [  
     [sg.Text('対象サイト'), sg.Combo(['', 'Yahooショッピング', 'Amazon'], key='site', size=(20, 15))],

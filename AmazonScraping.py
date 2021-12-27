@@ -152,9 +152,12 @@ def listLoop(linkstrs, limit):
   # リンク一覧を参照
   for linkstr in linkstrs :
     
-
-    # リンクが空白のものがあった
-    if linkstr.text == '':
+    try :
+      # リンクが空白のものがあった
+      if linkstr.text == '':
+        continue
+    except StaleElementReferenceException:
+      # linkstrを参照できないことがあった
       continue
 
     link = getLink(linkstr, linkRireki)
@@ -183,9 +186,14 @@ def listLoop(linkstrs, limit):
       # たまに新しいタブを開かない場合がある
       driver.back() # 戻る
       time.sleep(5)
-      link = getLink(linkstr, linkRireki)
-      link.click() # 再度開く
-      driver.switch_to.window(driver.window_handles[1])
+      try :
+        link = getLink(linkstr, linkRireki)
+        link.click() # 再度開く
+        driver.switch_to.window(driver.window_handles[1])
+      except StaleElementReferenceException:
+        # 2回目で新しいタブが開けない場合スキップする
+        logger.error('新しいタブを開けず %s' % (itemName))
+        continue
 
     try :
       # 業者ページを参照
@@ -267,6 +275,11 @@ def referGyousya(itemName) :
   list = getData()
 
   if list == None:
+    logger.error('情報がないためスキップ : %s' % (itemName))
+    return
+
+  if 'companyName' not in list :
+    logger.error('会社情報がないためスキップ : %s' % (itemName))
     return
 
   # エクセル書き込み
@@ -348,7 +361,7 @@ def writeExcel(list):
 
   # シートの読み込み
   sheet = wb['店舗情報']
-  
+
   # 既に会社情報が載っている場合は何もしない
   if kaisyaExist(list['companyName'], sheet) :
     return
