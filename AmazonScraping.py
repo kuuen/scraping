@@ -78,7 +78,7 @@ def main(s, limit):
     itemcont += listLoop(linkstrs, limit)
 
     # 最大件数を読み込んだら終了
-    if limit == itemcont:
+    if limit <= itemcont:
       break
 
     # 次ボタン取得 pagenateの種類が2パターンある両方確認する
@@ -211,7 +211,7 @@ def listLoop(linkstrs, limit):
     driver.switch_to.window(driver.window_handles[0])
 
     # 最大件数を読み込んだら終了
-    if limit == i:
+    if limit <= i:
       break
 
   return i
@@ -289,6 +289,10 @@ def getData() :
   global driver
   zyouhous = driver.find_elements_by_css_selector('.a-unordered-list.a-nostyle.a-vertical')
   list = {}
+
+  if len(zyouhous) == 0:
+    # ページが見つからない場合スキップ
+    return
 
   zyouhou = zyouhous[0].text.split('\n')
 

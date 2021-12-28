@@ -81,7 +81,7 @@ def main(s, limit):
     index += listLoop(page, linkstrs, linkRireki, index, limit)
 
     # 最大件数を読み込んだら終了
-    if limit == index:
+    if limit <= index:
       break
 
     # ページは非同期描画で書き込まれる。リンクを再読み込み
@@ -163,7 +163,7 @@ def listLoop(page, linkstrs, linkRireki, yomikomizumiIndex, limit):
     index += 1
 
     # 最大件数を読み込んだら終了
-    if limit == index:
+    if limit <= index:
       break
 
   return index

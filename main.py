@@ -58,12 +58,12 @@ def exec1():
 def exec2():
   keywordlist = [
     # 'もずく',
-    # '豚肉',
-    # 'ヤギ 沖縄',
-    # '山羊 沖縄',
-    # 'うちなー',
-    # '沖縄',
-    # '琉球',
+    '豚肉 沖縄',
+    'ヤギ 沖縄',
+    '山羊 沖縄',
+    'うちなー',
+    '沖縄',
+    '琉球',
     '泡盛',
     '黒糖',
     'ゴーヤー',
@@ -108,7 +108,7 @@ def exec2():
       #   logger.error(traceback.format_exc())
       #   sg.popup_error('エラーlogファイルを確認してください')
 
-      # YahooScraping.main(keyword, int(values['limit']))
+      YahooScraping.main(keyword, int(values['limit']))
       AmazonScraping.main(keyword, int(values['limit']))
 
 layout = [  
